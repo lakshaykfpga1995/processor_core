@@ -11,23 +11,20 @@ I have a incomplete rtl module called packet_processing_core with port list give
   output reg [31:0] m_axis_tdata,
   output reg m_axis_tvalid,
   input wire m_axis_tready,
-  // Control and status signals
+
   input wire [31:0] control_reg,
   output reg status_reg
 );```
 
 Operation of the core
 
-Maximum packet length allowed - 255, packet end delimitter - msb[31:24] = 8'hFF
-This module recieves an input packet from slave using axi stream interface 
-The output packet is also transmitted using axi stream interface from core.
-.
-Processing core also receive input signal of control reg to control internal operation on incoming packet bytes as below operation:
+Maximum packet length allowed - 255, packet end delimitter - 8 msb bits = 8'hFF
+This module recieves an input packet using axi stream interface. 
+The transmitted packet is also sent using axi stream interface.
 
+Processing core also receive input signal of control reg to control internal operation on incoming packet bytes as below operation:
 internal registers[32 bit] are present and updated based on control reg such that 
-internal reg 1 = packet_buffer [0] + control_reg
-internal reg 2 = packet_buffer [1] * control_reg
-output packet bytes are updated based on these internal reg 
+and finally output packet bytes are updated based on these internal reg 
 
 processing core outputs status_reg, status is 0 when core is sitting idle and no
 valid bytes are there in pipeline. 
