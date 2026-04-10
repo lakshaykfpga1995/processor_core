@@ -3,11 +3,11 @@ I have a incomplete rtl module called packet_processing_core with port list give
 ```module packet_processing_core (
   input wire clk,
   input wire rst_n,
-  // AXI stream interface for input
+
   input wire [31:0] s_axis_tdata,
   input wire s_axis_tvalid,
   output reg s_axis_tready,
-  // AXI stream interface for output
+
   output reg [31:0] m_axis_tdata,
   output reg m_axis_tvalid,
   input wire m_axis_tready,
@@ -18,19 +18,18 @@ I have a incomplete rtl module called packet_processing_core with port list give
 
 Operation of the core
 
-This module recieve an input packet from slave using axi stream interface[32 bit] of maximum length 255. 
-The output packet is also sent using axi stream interface[32 bit] from core to master.
-Packet end can be found by matching 8 msb bits to 8'hFF.
+Maximum packet length allowed - 255, packet end delimitter - msb[31:24] = 8'hFF
+This module recieves an input packet from slave using axi stream interface 
+The output packet is also transmitted using axi stream interface from core.
+.
 Processing core also receive input signal of control reg to control internal operation on incoming packet bytes as below operation:
 
-two internal registers[32 bit] are present and updated based on control reg such that 
+internal registers[32 bit] are present and updated based on control reg such that 
 internal reg 1 = packet_buffer [0] + control_reg
 internal reg 2 = packet_buffer [1] * control_reg
 output packet bytes are updated based on these internal reg 
-packet_buffer [0] = internal reg 1
-packet_buffer [1] = internal reg 2
 
-processing core outputs status_reg signaling status of operation , status is 0 when core is sitting idle and no
-valid bytes are there in pipeline of core other wise valid bytes in pipeline gives status 1.
+processing core outputs status_reg, status is 0 when core is sitting idle and no
+valid bytes are there in pipeline. 
 
 Complete the implementation of packet_processing_core implementing the logic given above.
