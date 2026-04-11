@@ -29,13 +29,13 @@ async def packet_core_varied_length_test(dut):
     await RisingEdge(dut.clk)
     await NextTimeStep()
 
-    # Test Case Parameters: (Packet Length, Control Reg Value)
+    # Test Case Parameters: (Packet Length, Control Reg Value, Operation Reg value)
     test_cases = [
-        ([0x12345678, 0x00000002, 0xFF000000], 0x0000005),  # 3 words, Ctrl=5
-        ([0xAAAA0000, 0xBBBB0000, 0xCCCC0000, 0xFFFFFFFF], 0x0000006A), # 4 words, Ctrl=10
+        ([0x12345678, 0x00000002, 0xFF000000], 0x0000005, 0x00),  # 3 words, Ctrl=5
+        ([0xAAAA0000, 0xBBBB0000, 0xCCCC0000, 0xFFFFFFFF], 0x0000006A, 0x01), # 4 words, Ctrl=10
     ]
 
-    for packet_data, ctrl_val in test_cases:
+    for packet_data, ctrl_val, operation_val in test_cases:
         dut.control_reg.value = ctrl_val
         
         # --- 1. Send Packet ---
@@ -87,8 +87,17 @@ async def packet_core_varied_length_test(dut):
         # Logic Verification based on STATE_PROCESS:
         # internal_reg1 = packet_buffer[0] + control_reg
         # internal_reg2 = packet_buffer[1] * control_reg
-        expected_reg1 = (packet_data[0] + ctrl_val) & 0xFFFFFFFF
-        expected_reg2 = (packet_data[1] * ctrl_val) & 0xFFFFFFFF
+        if operation_val == 0:
+            expected_reg1 = (packet_data[0] + ctrl_val) & 0xFFFFFFFF
+            expected_reg2 = (packet_data[1] + ctrl_val) & 0xFFFFFFFF
+        elif operation_val == 1:
+            expected_reg1 = (packet_data[0] * ctrl_val) & 0xFFFFFFFF
+            expected_reg2 = (packet_data[1] * ctrl_val) & 0xFFFFFFFF
+        elif operation_val == 2:
+            expected_reg1 = (packet_data[0] - ctrl_val) & 0xFFFFFFFF
+            expected_reg2 = (packet_data[1] - ctrl_val) & 0xFFFFFFFF
+        else:
+            raise ValueError(f"Invalid operation value: {operation_val}")
         
         # Note: Your RTL transmits in reverse order or specific buffer index
         # Based on: m_axis_tdata <= packet_buffer[packet_length - 1]

@@ -13,6 +13,7 @@ module packet_processing_core (
     input wire m_axis_tready,
     // Control and status signals
     input wire [31:0] control_reg,
+    input wire [1:0] operation,
     output wire status_reg
 );
 
@@ -27,6 +28,12 @@ module packet_processing_core (
     localparam STATE_PROCESS  = 2'b01;
     localparam STATE_TRANSMIT = 2'b10;
 
+    localparam ADDITION = 2'b00;
+    localparam MULTIPLICATION = 2'b01;
+    localparam SUBTRACTION = 2'b10;
+
+
+    //reg [1:0] operation;
     reg [1:0] current_state;
     reg [1:0] next_state;
 
@@ -77,13 +84,21 @@ module packet_processing_core (
                 end
 
                 STATE_PROCESS: begin
-                    // Perform arithmetic using control_reg
+                    if(operation == ADDITION) begin
                     internal_reg1 <= packet_buffer[0] + control_reg;
+                    internal_reg2 <= packet_buffer[1] + control_reg;
+                    end
+                    else if(operation == MULTIPLICATION) begin
+                    internal_reg1 <= packet_buffer[0] * control_reg;
                     internal_reg2 <= packet_buffer[1] * control_reg;
-                    
+                    end
+                    else if(operation == SUBTRACTION) begin
+                    internal_reg1 <= packet_buffer[0] - control_reg;
+                    internal_reg2 <= packet_buffer[1] - control_reg;
+                    end
                     // Update buffer with processed values
-                    packet_buffer[0] <= packet_buffer[0] + control_reg;
-                    packet_buffer[1] <= packet_buffer[1] * control_reg;
+                    packet_buffer[0] <= internal_reg1 + control_reg;
+                    packet_buffer[1] <= internal_reg2 + control_reg;
                 end
 
                 STATE_TRANSMIT: begin

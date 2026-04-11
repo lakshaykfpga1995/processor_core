@@ -13,6 +13,7 @@ module packet_processing_core (
     input wire m_axis_tready,
     // Control and status signals
     input wire [31:0] control_reg,
+    input wire [1:0] operation,
     output wire status_reg
 );
 

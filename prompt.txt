@@ -13,6 +13,7 @@ I have a incomplete rtl module called packet_processing_core with port list give
   input wire m_axis_tready,
 
   input wire [31:0] control_reg,
+  input wire [1:0] operation,
   output reg status_reg
 );```
 
@@ -24,7 +25,8 @@ The transmitted packet is also sent using axi stream interface.
 
 Processing core also receive input signal of control reg to control internal operation on incoming packet bytes as below operation:
 internal registers[32 bit] are present and updated based on control reg such that 
-and finally output packet bytes are updated based on these internal reg 
+and finally output packet bytes are updated based on these internal reg
+ALU operaion on these control reg are decided by input operation. 
 
 processing core outputs status_reg, status is 0 when core is sitting idle and no
 valid bytes are there in pipeline. 
