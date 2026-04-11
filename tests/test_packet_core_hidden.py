@@ -1,115 +1,117 @@
 from __future__ import annotations
-
 import os
 from pathlib import Path
-
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import NextTimeStep, ReadOnly, RisingEdge, Timer
+from cocotb.triggers import NextTimeStep, RisingEdge, Timer, ReadOnly
 from cocotb_tools.runner import get_runner
 
-LANGUAGE = os.getenv("HDL_TOPLEVEL_LANG", "verilog").lower().strip()
+# Constants
+ADDITION = 0
+MULTIPLICATION = 1
+SUBTRACTION = 2
 
-@cocotb.test()
-async def packet_core_varied_length_test(dut):
-    """Test processing packets of varied lengths and control_reg effects"""
+async def start_clock(dut):
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
 
-    # Initial Reset
+async def reset_dut(dut):
     dut.rst_n.value = 0
+    dut.control_reg.value = 0
+    dut.operation.value = 0
     dut.s_axis_tdata.value = 0
     dut.s_axis_tvalid.value = 0
     dut.m_axis_tready.value = 0
-    dut.control_reg.value = 0
-    
-    clock = Clock(dut.clk, 10, unit="ns")
-    cocotb.start_soon(clock.start())
-    
     await Timer(20, unit="ns")
     dut.rst_n.value = 1
     await RisingEdge(dut.clk)
+
+async def send_packet(dut, data_list):
+    for word in data_list:
+        while int(dut.s_axis_tready.value) == 0:
+            await RisingEdge(dut.clk)
+        dut.s_axis_tdata.value = word
+        dut.s_axis_tvalid.value = 1
+        await RisingEdge(dut.clk)
+    dut.s_axis_tvalid.value = 0
+
+async def receive_packet(dut):
     await NextTimeStep()
-
-    # Test Case Parameters: (Packet Length, Control Reg Value, Operation Reg value)
-    test_cases = [
-        ([0x12345678, 0x00000002, 0xFF000000], 0x0000005, 0x00),  # 3 words, Ctrl=5
-        ([0xAAAA0000, 0xBBBB0000, 0xCCCC0000, 0xFFFFFFFF], 0x0000006A, 0x01), # 4 words, Ctrl=10
-    ]
-
-    for packet_data, ctrl_val, operation_val in test_cases:
-        dut.control_reg.value = ctrl_val
-        
-        # --- 1. Send Packet ---
-        for i, word in enumerate(packet_data):
-            while int(dut.s_axis_tready.value) == 0:
-                await RisingEdge(dut.clk)
-            await NextTimeStep()
-
-            dut.s_axis_tdata.value = word
-            dut.s_axis_tvalid.value = 1
-            await RisingEdge(dut.clk)
-            await ReadOnly()
-            assert int(dut.status_reg.value) == 1, f"Status reg failed to assert at word {i}"
-            await NextTimeStep()
-
-        dut.s_axis_tvalid.value = 0
-
-        # --- 2. Wait for output (hold m_axis_tready high so TRANSMIT can handshake) ---
-        # If tready stays low until after tvalid is seen, the DUT may never decrement
-        # packet_length on the first valid cycle; assert ready before waiting for valid.
-        await NextTimeStep()
-        dut.m_axis_tready.value = 1
-        await NextTimeStep()
-
-        # --- 3. Receive and Verify ---
-        # Wait until output starts (fail fast if FSM never reaches TRANSMIT).
-        cycles_wait_m = 0
-        while int(dut.m_axis_tvalid.value) == 0:
-            await RisingEdge(dut.clk)
-            cycles_wait_m += 1
-            if cycles_wait_m > 500:
-                raise RuntimeError("m_axis_tvalid never asserted (DUT stuck before TRANSMIT?)")
-
-        # Drain: status may lag combinational valid; keep sampling until both are idle.
-        received_packet = []
-        it = 0
-        while int(dut.status_reg.value) != 0 or int(dut.m_axis_tvalid.value) != 0:
-            await RisingEdge(dut.clk)
-            await ReadOnly()
-            if int(dut.m_axis_tvalid.value) != 0 and int(dut.m_axis_tready.value) != 0:
-                try:
-                    received_packet.append(int(dut.m_axis_tdata.value))
-                except ValueError:
-                    pass  # tdata may be X until the first transmit beat is registered
-            it += 1
-            if it > 500:
-                raise RuntimeError("m_axis drain timed out")
-        
-        # Logic Verification based on STATE_PROCESS:
-        # internal_reg1 = packet_buffer[0] + control_reg
-        # internal_reg2 = packet_buffer[1] * control_reg
-        if operation_val == 0:
-            expected_reg1 = (packet_data[0] + ctrl_val) & 0xFFFFFFFF
-            expected_reg2 = (packet_data[1] + ctrl_val) & 0xFFFFFFFF
-        elif operation_val == 1:
-            expected_reg1 = (packet_data[0] * ctrl_val) & 0xFFFFFFFF
-            expected_reg2 = (packet_data[1] * ctrl_val) & 0xFFFFFFFF
-        elif operation_val == 2:
-            expected_reg1 = (packet_data[0] - ctrl_val) & 0xFFFFFFFF
-            expected_reg2 = (packet_data[1] - ctrl_val) & 0xFFFFFFFF
-        else:
-            raise ValueError(f"Invalid operation value: {operation_val}")
-        
-        # Note: Your RTL transmits in reverse order or specific buffer index
-        # Based on: m_axis_tdata <= packet_buffer[packet_length - 1]
-        # It pops from the end of the buffer.
-        dut._log.info(f"Received Packet: {[hex(x) for x in received_packet]}")
-        
-        # Verify status_reg returns to 0 after transmit finishes
+    received = []
+    dut.m_axis_tready.value = 1
+    await RisingEdge(dut.clk)
+    while int(dut.m_axis_tvalid.value) == 0:
         await RisingEdge(dut.clk)
+    while int(dut.m_axis_tvalid.value) != 0:
+        await ReadOnly()
+        received.append(int(dut.m_axis_tdata.value))
         await RisingEdge(dut.clk)
-        assert int(dut.status_reg.value) == 0, "Status reg should be 0 after packet transmission"
+    dut.m_axis_tready.value = 0
+    return received
 
-    dut._log.info("All packet tests passed!")
+@cocotb.test()
+async def basic_addition_test(dut):
+    """Test Case 1: Basic Addition with short packet"""
+    await start_clock(dut)
+    await reset_dut(dut)
+    dut.control_reg.value = 10
+    dut.operation.value = ADDITION
+    
+    # [Word0, Word1, EOP]
+    payload = [100, 200, 0xFF000000]
+    await send_packet(dut, payload)
+    results = await receive_packet(dut)
+    
+    # Reverse LIFO: [EOP, Word1+10, Word0+10, Footer]
+    assert results[1] == 210, f"Expected 210, got {results[1]}"
+    assert results[2] == 110, f"Expected 110, got {results[2]}"
+    dut._log.info("Basic Addition Test Passed")
+
+@cocotb.test()
+async def medium_multiplication_test(dut):
+    """Test Case 2: Multiplication with medium packet"""
+    await start_clock(dut)
+    await reset_dut(dut)
+    dut.control_reg.value = 5
+    dut.operation.value = MULTIPLICATION
+    
+    # [Word0, Word1, Word2, EOP]
+    payload = [10, 20, 30, 0xFF123456]
+    await send_packet(dut, payload)
+    results = await receive_packet(dut)
+    
+    # result indices (Reverse): 0:EOP, 1:Word2, 2:Word1*5, 3:Word0*5, 4:Footer
+    assert results[2] == 100, f"Expected 100, got {results[2]}"
+    assert results[3] == 50, f"Expected 50, got {results[3]}"
+    dut._log.info("Medium Multiplication Test Passed")
+
+@cocotb.test()
+async def comprehensive_subtraction_status_test(dut):
+    """Test Case 3: Subtraction, Status Reg, and Length 255 check"""
+    await start_clock(dut)
+    await reset_dut(dut)
+    dut.control_reg.value = 50
+    dut.operation.value = SUBTRACTION
+    
+    # Test status_reg at IDLE
+    assert int(dut.status_reg.value) == 0, "status_reg should be 0 at IDLE"
+    
+    payload = [100, 100, 0xFFFFFFFF]
+    await send_packet(dut, payload)
+    
+    # Test status_reg while processing
+    await ReadOnly()
+    assert int(dut.status_reg.value) == 1, "status_reg should be 1 during processing"
+
+    results = await receive_packet(dut)
+    assert results[1] == 50, "Subtraction Word 1 failed"
+    assert results[2] == 50, "Subtraction Word 0 failed"
+    assert results[3] == 0xFFFFFFFF, "Footer missing"
+    
+    # Test return to IDLE
+    await RisingEdge(dut.clk)
+    assert int(dut.status_reg.value) == 0, "status_reg failed to return to 0"
+    dut._log.info("Comprehensive Test Passed")
 
 def test_packet_core_hidden_runner():
    sim = os.getenv("SIM", "icarus")

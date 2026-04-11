@@ -21,20 +21,12 @@ Operation of the core
 
 packets are received and transmitted from core. 
 Maximum packet length allowed - 255, packet end delimitter - 8'hFF
-
-Tranmitted packet data can be all Fs when no valid packets recieved.  
-
 Processing core also receive input signal of control reg to control internal operation on incoming packet bytes as below operation:
 
 internal registers[32 bit] are present and updated based on control reg such that 
 and finally output packet bytes are updated based on these internal reg
 
 ALU operation on these control reg are decided by input operation, only addition, substraction and multiplication are allowed.
-
-Try implementing addition, multiplication and subtraction operations on registers.
-
-Consider choosing between comibational or sequential implementation based on latency requirements as m_axis_tvalid can't be delaye by one clock cyle as soon 
-as valid packet is available. 
 
 processing core outputs status_reg, status is 0 when core is sitting idle
 

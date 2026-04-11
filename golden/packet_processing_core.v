@@ -84,21 +84,22 @@ module packet_processing_core (
                 end
 
                 STATE_PROCESS: begin
-                    if(operation == ADDITION) begin
-                    internal_reg1 <= packet_buffer[0] + control_reg;
-                    internal_reg2 <= packet_buffer[1] + control_reg;
+                    if (operation == ADDITION) begin
+                        internal_reg1 <= packet_buffer[0] + control_reg;
+                        internal_reg2 <= packet_buffer[1] + control_reg;
+                        packet_buffer[0] <= packet_buffer[0] + control_reg;
+                        packet_buffer[1] <= packet_buffer[1] + control_reg;
+                    end else if (operation == MULTIPLICATION) begin
+                        internal_reg1 <= packet_buffer[0] * control_reg;
+                        internal_reg2 <= packet_buffer[1] * control_reg;
+                        packet_buffer[0] <= packet_buffer[0] * control_reg;
+                        packet_buffer[1] <= packet_buffer[1] * control_reg;
+                    end else if (operation == SUBTRACTION) begin
+                        internal_reg1 <= packet_buffer[0] - control_reg;
+                        internal_reg2 <= packet_buffer[1] - control_reg;
+                        packet_buffer[0] <= packet_buffer[0] - control_reg;
+                        packet_buffer[1] <= packet_buffer[1] - control_reg;
                     end
-                    else if(operation == MULTIPLICATION) begin
-                    internal_reg1 <= packet_buffer[0] * control_reg;
-                    internal_reg2 <= packet_buffer[1] * control_reg;
-                    end
-                    else if(operation == SUBTRACTION) begin
-                    internal_reg1 <= packet_buffer[0] - control_reg;
-                    internal_reg2 <= packet_buffer[1] - control_reg;
-                    end
-                    // Update buffer with processed values
-                    packet_buffer[0] <= internal_reg1 + control_reg;
-                    packet_buffer[1] <= internal_reg2 + control_reg;
                 end
 
                 STATE_TRANSMIT: begin
