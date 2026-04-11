@@ -19,16 +19,14 @@ I have a incomplete rtl module called packet_processing_core with port list give
 
 Operation of the core
 
-Maximum packet length allowed - 255, packet end delimitter - 8 msb bits = 8'hFF
-This module recieves an input packet using axi stream interface. 
-The transmitted packet is also sent using axi stream interface.
+packets are received and transmitted from core. 
+Maximum packet length allowed - 255, packet end delimitter - 8'hFF
 
-Processing core also receive input signal of control reg to control internal operation on incoming packet bytes as below operation:
-internal registers[32 bit] are present and updated based on control reg such that 
-and finally output packet bytes are updated based on these internal reg
-ALU operaion on these control reg are decided by input operation. 
+Processing core also receive input signal of control reg to control internal operation on incoming packet bytes as below :
+Internal registers[32 bit] are present and operated with control reg based on operation input.
+these internal registers are finally updated to packet bytes.  
 
-processing core outputs status_reg, status is 0 when core is sitting idle and no
-valid bytes are there in pipeline. 
+
+processing core outputs status_reg, status is 0 when core is sitting idle.
 
 Complete the implementation of packet_processing_core implementing the logic given above.
