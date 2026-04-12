@@ -42,6 +42,15 @@ Tasks performed by this module are as follows:-
   3. And if the data is of less than 7 clocks then some dead clocks will be introduced so that at least 8 clocks will be read out before reading from the next port.
   4. Reading the data from the ports will be done in round robin manner.      
 
+constraints 
+
+Zero-latency Read: port_data_rd_out should be asserted combinationally as soon as a port is selected to avoid missing the first beat.
+
+Strict Timing: The 8-clock rule means total 'busy' time per port. If a packet takes 3 cycles, wait 5 more. If it takes 10 cycles, wait 1.
+
+Last Beat Capture: Ensure data_rx_last_out is visible to the classifier in the same cycle it is received from the buffer.
+
+
 
 
 Complete the implementation of ingress_arbiter implementing the logic given above.
