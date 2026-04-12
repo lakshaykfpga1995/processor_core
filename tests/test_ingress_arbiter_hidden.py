@@ -16,7 +16,7 @@ KEEP_BYTES = DATA_WIDTH // 8
 
 
 def _iverilog_patch_sv(src: str) -> str:
-    """Icarus rejects a trailing comma after the last port; match that style if present."""
+    """Icarus rejects a trailing comma after the last port; golden uses SV trailing-comma style."""
     patched = src.replace(
         "data_rx_keep_out      , //Keep signal aligned with the output data.",
         "data_rx_keep_out       //Keep signal aligned with the output data.",
@@ -32,79 +32,23 @@ def _iverilog_patch_sv(src: str) -> str:
     return patched
 
 
-def _write_ingress_wrap(proj_path: Path) -> Path:
-    """Flatten unpacked arrays for cocotb+VPI (Icarus indexes unpacked ports as opaque blobs)."""
-    build_dir = proj_path / "sim_build"
-    p = build_dir / "ingress_arbiter_cocotb_wrap.sv"
-    p.write_text(
-        """\
-`timescale 1ns / 1ps
-// Cocotb-friendly top: one-dimensional vectors for all multi-port data (matches VPI access patterns).
-module ingress_arbiter_cocotb_wrap #(
-    parameter int DATA_WIDTH = 64,
-    parameter int NUM_PORT  = 24
-) (
-    input  logic                                     clk,
-    input  logic                                     rst,
-    input  logic [NUM_PORT*DATA_WIDTH-1:0]           data_rx_in_flat,
-    input  logic [NUM_PORT-1:0]                      data_rx_valid_in,
-    input  logic [NUM_PORT-1:0]                      data_rx_start_in,
-    input  logic [NUM_PORT-1:0]                      data_rx_last_in,
-    input  logic [NUM_PORT*(DATA_WIDTH/8)-1:0]       data_rx_keep_in_flat,
-    input  logic [NUM_PORT-1:0]                      port_data_rdy,
-    input  logic [NUM_PORT-1:0]                      shared_mem_ram_full_in,
-    output logic [NUM_PORT-1:0]                      port_data_rd_out,
-    output logic [DATA_WIDTH-1:0]                    data_rx_out,
-    output logic                                     data_rx_valid_out,
-    output logic                                     data_rx_start_out,
-    output logic                                     data_rx_last_out,
-    output logic [(DATA_WIDTH/8)-1:0]                data_rx_keep_out
-);
-    wire [NUM_PORT-1:0][DATA_WIDTH-1:0]              data_rx_in;
-    wire [NUM_PORT-1:0][(DATA_WIDTH/8)-1:0]          data_rx_keep_in;
-    genvar gi;
-    generate
-        for (gi = 0; gi < NUM_PORT; gi = gi + 1) begin : g_pack
-            assign data_rx_in[gi] = data_rx_in_flat[gi*DATA_WIDTH +: DATA_WIDTH];
-            assign data_rx_keep_in[gi] = data_rx_keep_in_flat[gi*(DATA_WIDTH/8) +: (DATA_WIDTH/8)];
-        end
-    endgenerate
-
-    ingress_arbiter #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .NUM_PORT(NUM_PORT)
-    ) u_dut (
-        .clk(clk),
-        .rst(rst),
-        .data_rx_in(data_rx_in),
-        .data_rx_valid_in(data_rx_valid_in),
-        .data_rx_start_in(data_rx_start_in),
-        .data_rx_last_in(data_rx_last_in),
-        .data_rx_keep_in(data_rx_keep_in),
-        .port_data_rdy(port_data_rdy),
-        .shared_mem_ram_full_in(shared_mem_ram_full_in),
-        .port_data_rd_out(port_data_rd_out),
-        .data_rx_out(data_rx_out),
-        .data_rx_valid_out(data_rx_valid_out),
-        .data_rx_start_out(data_rx_start_out),
-        .data_rx_last_out(data_rx_last_out),
-        .data_rx_keep_out(data_rx_keep_out)
-    );
-endmodule
-"""
-    )
-    return p
-
-
-def _patched_dut_path(proj_path: Path) -> Path:
-    """Copy ``sources/ingress_arbiter.sv`` into sim_build with Icarus-friendly port list."""
+def _patched_rtl_path(proj_path: Path, rtl_relpath: str) -> Path:
+    """Copy RTL (e.g. ``golden/...`` or ``sources/...``) into sim_build for Icarus."""
     build_dir = proj_path / "sim_build"
     build_dir.mkdir(parents=True, exist_ok=True)
-    rtl = (proj_path / "sources/ingress_arbiter.sv").read_text()
+    rtl = (proj_path / rtl_relpath).read_text()
     patched = _iverilog_patch_sv(rtl)
     out = build_dir / "ingress_arbiter_iv.v"
     out.write_text(patched)
     return out
+
+
+def _logic_bin_int(sig) -> int:
+    """0/1 only; X/Z or bad values become 0 (safe for gating)."""
+    try:
+        return int(sig.value)
+    except (ValueError, TypeError):
+        return 0
 
 
 def _uint_from_logic(dut_sig) -> int | None:
@@ -117,34 +61,35 @@ def _uint_from_logic(dut_sig) -> int | None:
 
 
 def _set_data_rx_word(dut, port: int, word: int) -> None:
-    """Port ``port`` maps to ``data_rx_in_flat[port*W +: W]`` (see ``ingress_arbiter_cocotb_wrap``)."""
+    """Update one port slice of packed ``data_rx_in`` (VPI exposes 2-D packed as one vector)."""
     m = (1 << DATA_WIDTH) - 1
-    cur = int(dut.data_rx_in_flat.value)
+    w = word & m
+    cur = int(dut.data_rx_in.value)
     sh = port * DATA_WIDTH
-    cur = (cur & ~(m << sh)) | ((word & m) << sh)
-    dut.data_rx_in_flat.value = cur
+    cur = (cur & ~(m << sh)) | (w << sh)
+    dut.data_rx_in.value = cur
 
 
 def _set_data_rx_keep(dut, port: int, keep: int) -> None:
     km = (1 << KEEP_BYTES) - 1
-    cur = int(dut.data_rx_keep_in_flat.value)
+    k = keep & km
+    cur = int(dut.data_rx_keep_in.value)
     sh = port * KEEP_BYTES
-    cur = (cur & ~(km << sh)) | ((keep & km) << sh)
-    dut.data_rx_keep_in_flat.value = cur
+    cur = (cur & ~(km << sh)) | (k << sh)
+    dut.data_rx_keep_in.value = cur
 
 
 def _idle_all_ports(dut) -> None:
     dut.port_data_rdy.value = 0
     dut.shared_mem_ram_full_in.value = 0
-    dut.data_rx_in_flat.value = 0
+    dut.data_rx_in.value = 0
+    dut.data_rx_keep_in.value = 0
     dut.data_rx_valid_in.value = 0
     dut.data_rx_start_in.value = 0
     dut.data_rx_last_in.value = 0
-    dut.data_rx_keep_in_flat.value = 0
 
 
 async def start_clock(dut) -> None:
-    """10 ns period (each pytest+cocotb run is a fresh simulation — see runner filter)."""
     dut.clk.value = 0
     clk = Clock(dut.clk, 10, unit="ns", impl="py")
     clk.start(start_high=False)
@@ -171,7 +116,7 @@ def _clear_port_stream(dut, port: int) -> None:
     dut.data_rx_valid_in.value = 0
     dut.data_rx_start_in.value = 0
     dut.data_rx_last_in.value = 0
-    dut.data_rx_keep_in_flat.value = 0
+    dut.data_rx_keep_in.value = 0
 
 
 async def send_packet(dut, port: int, words: list[int]) -> None:
@@ -188,7 +133,7 @@ async def send_packet(dut, port: int, words: list[int]) -> None:
         for _ in range(500):
             await RisingEdge(dut.clk)
             await ReadOnly()
-            saw_last = int(dut.data_rx_last_out.value) and int(dut.data_rx_valid_out.value)
+            saw_last = _logic_bin_int(dut.data_rx_last_out) and _logic_bin_int(dut.data_rx_valid_out)
             await NextTimeStep()
             _drive_beat(dut, port, w, True, True)
             if saw_last:
@@ -203,7 +148,7 @@ async def send_packet(dut, port: int, words: list[int]) -> None:
         for _ in range(500):
             await RisingEdge(dut.clk)
             await ReadOnly()
-            vo = int(dut.data_rx_valid_out.value)
+            vo = _logic_bin_int(dut.data_rx_valid_out)
             d0 = _uint_from_logic(dut.data_rx_out)
             await NextTimeStep()
             _drive_beat(dut, port, w0, True, False)
@@ -234,13 +179,15 @@ async def receive_packet(dut) -> list[tuple[int, int, int, int]]:
         while True:
             await RisingEdge(dut.clk)
             await ReadOnly()
-            if int(dut.data_rx_valid_out.value):
+            if _logic_bin_int(dut.data_rx_valid_out):
                 d = _uint_from_logic(dut.data_rx_out)
                 if d is None:
                     continue
-                s = int(dut.data_rx_start_out.value)
-                l = int(dut.data_rx_last_out.value)
-                k = int(dut.data_rx_keep_out.value)
+                s = _logic_bin_int(dut.data_rx_start_out)
+                l = _logic_bin_int(dut.data_rx_last_out)
+                k = _uint_from_logic(dut.data_rx_keep_out)
+                if k is None:
+                    continue
                 beats.append((d, s, l, k))
                 if l:
                     return
@@ -319,7 +266,7 @@ async def comprehensive_arbiter_round_robin_and_ram_full(dut):
     for _ in range(80):
         await RisingEdge(dut.clk)
         await ReadOnly()
-        assert int(dut.data_rx_valid_out.value) == 0, "arbiter must not grant when RAM full"
+        assert _logic_bin_int(dut.data_rx_valid_out) == 0, "arbiter must not grant when RAM full"
 
     await NextTimeStep()
     dut.shared_mem_ram_full_in.value = 0
@@ -332,6 +279,14 @@ async def comprehensive_arbiter_round_robin_and_ram_full(dut):
     dut._log.info("Comprehensive round-robin / RAM-full test passed")
 
 
+def _rtl_path_for_sim(proj_path: Path) -> str:
+    """Prefer ``golden/`` when present; else ``sources/`` (e.g. ingress_arbiter_test branch)."""
+    g = proj_path / "golden/ingress_arbiter.sv"
+    if g.is_file():
+        return "golden/ingress_arbiter.sv"
+    return "sources/ingress_arbiter.sv"
+
+
 @pytest.mark.parametrize(
     "cocotb_case",
     [
@@ -341,20 +296,24 @@ async def comprehensive_arbiter_round_robin_and_ram_full(dut):
     ],
 )
 def test_ingress_arbiter_hidden_runner(cocotb_case):
-    """Run each cocotb scenario in its own simulation (one ``@cocotb.test`` per vvp)."""
+    """Top is ``ingress_arbiter`` only (no wrapper). RTL from ``_rtl_path_for_sim``.
+
+    Packed multi-port buses use read-modify-write on ``dut.data_rx_in`` / ``dut.data_rx_keep_in``.
+    """
     sim = os.getenv("SIM", "icarus")
     proj_path = Path(__file__).resolve().parent.parent
-    sources = [_patched_dut_path(proj_path), _write_ingress_wrap(proj_path)]
+    rtl_rel = os.getenv("INGRESS_ARBITER_RTL", _rtl_path_for_sim(proj_path))
+    sources = [_patched_rtl_path(proj_path, rtl_rel)]
     runner = get_runner(sim)
     runner.build(
         sources=sources,
-        hdl_toplevel="ingress_arbiter_cocotb_wrap",
+        hdl_toplevel="ingress_arbiter",
         always=True,
     )
     prev = os.environ.get("COCOTB_TEST_FILTER")
     os.environ["COCOTB_TEST_FILTER"] = cocotb_case
     try:
-        runner.test(hdl_toplevel="ingress_arbiter_cocotb_wrap", test_module="test_ingress_arbiter_hidden")
+        runner.test(hdl_toplevel="ingress_arbiter", test_module="test_ingress_arbiter_hidden")
     finally:
         if prev is None:
             os.environ.pop("COCOTB_TEST_FILTER", None)
