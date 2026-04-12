@@ -1,34 +1,47 @@
-I have a incomplete rtl module called packet_processing_core with port list given below:
+I have a incomplete rtl module called ingress_arbiter with port list given below:
 
-```module packet_processing_core (
-  input wire clk,
-  input wire rst_n,
-
-  input wire [31:0] s_axis_tdata,
-  input wire s_axis_tvalid,
-  output reg s_axis_tready,
-
-  output reg [31:0] m_axis_tdata,
-  output reg m_axis_tvalid,
-  input wire m_axis_tready,
-
-  input wire [31:0] control_reg,
-  input wire [1:0] operation,
-  output reg status_reg
-);```
-
-Operation of the core
-
-packets are received and transmitted from core. 
-Maximum packet length allowed - 255, packet end delimitter - 8'hFF
-Processing core also receive input signal of control reg to control internal operation on incoming packet bytes as below operation:
-
-internal registers[32 bit] are present and updated based on control reg such that 
-and finally output packet bytes are updated based on these internal reg
-
-ALU operation on these control reg are decided by input operation, only addition, substraction and multiplication are allowed.
-
-processing core outputs status_reg, status is 0 when core is sitting idle
+```module ingress_arbiter #(
+   parameter DATA_WIDTH      = 64,
+   parameter NUM_PORT        = 24)
+   (
+//Inputs from the ingress buffer   
+   input  logic                                     clk                   ,  
+   input  logic                                     rst                   ,
+   input  logic [NUM_PORT-1:0][DATA_WIDTH-1:0]      data_rx_in            , 
+   input  logic [NUM_PORT-1:0]                      data_rx_valid_in      , 
+   input  logic [NUM_PORT-1:0]                      data_rx_start_in      ,
+   input  logic [NUM_PORT-1:0]                      data_rx_last_in       , 
+   input  logic [NUM_PORT-1:0][(DATA_WIDTH/8)-1:0]  data_rx_keep_in       ,
 
 
-Complete the implementation of packet_processing_core implementing the logic given above.
+//Input from Ingress Buffer
+   input  logic [NUM_PORT-1:0]                      port_data_rdy         , //Signal indicates that corresponding port is ready with at least 1 packet to transmit.   
+   
+   input logic  [NUM_PORT-1:0]                      shared_mem_ram_full_in,
+
+//Output to Ingress Buffer
+   output logic [NUM_PORT-1:0]                      port_data_rd_out      , //Read enable signal to the port buffer to read the packets.
+
+//Output to Packet Classifier
+   output logic [DATA_WIDTH-1:0]                    data_rx_out           , 
+   output logic                                     data_rx_valid_out     ,
+   output logic                                     data_rx_start_out     , 
+   output logic                                     data_rx_last_out      , 
+   output logic [(DATA_WIDTH/8)-1:0]                data_rx_keep_out       
+
+   
+   );
+```
+
+Tasks performed by this module are as follows:-
+
+  The input data is coming from ingress buffer side where packets are stored, packet data is finally transmitted to packet classifer 
+  based on the arbitration done in round robin manner and deciding if packet some port is already tranmitter, arbiter is busy 
+  1. Generate the Rd signal to MAC to read out the data from buffer from which data is ready to transmit.
+  2. Will transmit the data forward and if the data length is more than of 7 clocks then one dead clocks will be introduced before reading from another port.
+  3. And if the data is of less than 7 clocks then some dead clocks will be introduced so that at least 8 clocks will be read out before reading from the next port.
+  4. Reading the data from the ports will be done in round robin manner.      
+
+
+
+Complete the implementation of ingress_arbiter implementing the logic given above.
